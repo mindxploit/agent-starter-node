@@ -35,10 +35,11 @@
   },
   "dependencies": {
     "@livekit/agents": "^1.0.43",
-    "@livekit/agents-plugin-livekit": "^1.0.43",
-    "@livekit/agents-plugin-silero": "^1.0.43",
-    "@livekit/noise-cancellation-node": "^0.1.9",
+    "@livekit/agents-plugin-openai": "~1.0.44",
+    "@livekit/agents-plugin-silero": "^1.0.44",
+    "@qdrant/js-client-rest": "^1.16.2",
     "dotenv": "^17.2.4",
+    "openai": "^6.22.0",
     "zod": "^3.25.76"
   }
 }
