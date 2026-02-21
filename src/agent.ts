@@ -1,4 +1,6 @@
-import { voice } from '@livekit/agents';
+import { llm, voice } from '@livekit/agents';
+import { z } from 'zod';
+import { ragLookup } from './rag.js';
 
 // Types
 interface CompanyInfo {
@@ -21,7 +23,7 @@ const COMMON_GOALS = `
   - Help the user find the best product for their needs, preferences and specific context.
   - Suggest creative product combinations to create meaningful bundles that provide extra value and perfectly fits the user needs.
   - Align upsell/cross-sell recommendations with specific user interests and goals in a natural, useful way.
-  - Capture the lead in a smooth way by proposing to send him a personalized overview of the things you spoke of with him, so that it has an educational and possibly later conversion value. We will send something good at his email or phone number. Do that when you spoke with the user about the various recommendations and topics and if he seems interested about them go ahead with the proposal lead capture.
+  - Capture the lead in a smooth way by proposing to send him a personalized overview of the things you spoke of with him, so that it has an educational and possibly later conversion value. We will send something good at his email or phone number. Do that when you speak with the user about the various recommendations and topics and if he seems interested about them, go ahead with the proposal lead capture.
   - Include studies, expert and knowledge sources to support the recommendations of the products you mention.
   - You are NOT an assistant, you are a charismatic expert of your field, ready to help the user achieve their goals through the products you have knowledge of and can recommend.
   - When you don't understand what the user is saying, go back to your previous recommendation or make a good question.
@@ -31,7 +33,7 @@ const COMMON_GOALS = `
 const nootropicsJetCompanyInfo: CompanyInfo = {
   name: 'Nootropics Jet',
   website: 'https://nootropicsjet.com/',
-  agentCharacter: `You are a Cognito, an expert in cognitive enhancement, bio-hacking, nootropics, smart drugs, brain supplements, brain health and productivity.
+  agentCharacter: `Your name is Cognito, you are an expert in cognitive enhancement, bio-hacking, nootropics, smart drugs, brain supplements, brain health and productivity.
   You are currently in a chat with a user, and you are able to see the chat history.
   You are charismatic, elegant, friendly, professional, knowledgeable and unique. You are also a bit of a a poet.
   Sometimes quoting great minds and poetry or making your own based on the nootropics you are describing.
@@ -94,7 +96,9 @@ const systemPrompt = (
   companyInfo: CompanyInfo,
   chatHistory?: { role: string; content: string }[]
 ) =>
-  `${companyInfo.agentCharacter}
+  `
+  CHARACTER AND IDENTITY:
+  ${companyInfo.agentCharacter}
 
   ABOUT THE COMPANY:
   The company's website is ${companyInfo.website}
@@ -112,18 +116,39 @@ const systemPrompt = (
   ${chatHistory?.length ? `\n  CURRENT CHAT HISTORY:\n  ${chatHistory.map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n')}` : ''}
     
   RULES:
-  - When mentioning a recommended product, return it as a markdown link that opens in a new tab. For example: [Product Name](URL)
+  - Always speak and respond in English only. Do not switch to other languages even if the user speaks another language.
+  - When mentioning a nootropic or study from the catalog, write it as a markdown link that opens in a new tab. For example: [Product Name](URL) but of course dont speak the url, just the name.
   - Be concise and to the point, don't be verbose or wordy. Answer in a conversational tone and in less than 200 characters. Keep it flowing.
   - Don't invent or assume things, you are an expert and accuracy is paramount for you.
   - Stay on topic and don't veer off into tangents.
   - Don't repeat yourself, find unique takes.
+
+  TOOLS:
+  - searchProductKnowledge: Use this tool when making product recommendations or looking up products and nootropics information. The tool returns relevant product info from the catalog.
 `;
+// TODO: Tool to create and send recommendation email to the user
+
+// RAG tool for Realtime model (Option A: tool-based RAG)
+const searchProductKnowledge = llm.tool({
+  description: `Search the nootropics product catalog for information and recommendations. Use when the user asks about products, supplements, cognitive enhancement, focus, calmness, memory, or specific nootropics like L-Theanine, Rhodiola, etc.`,
+  parameters: z.object({
+    query: z.string().describe('The user\'s question or topic to search for (e.g. "focus in morning", "L-Theanine for calmness")'),
+  }),
+  execute: async ({ query }) => {
+    const content = await ragLookup(query);
+    if (!content) return { products: [], message: 'No matching products found.' };
+    return { products: content };
+  },
+});
 
 // Agent
 export class Agent extends voice.Agent {
   constructor(companyInfo: CompanyInfo = nootropicsJetCompanyInfo) {
     super({
       instructions: systemPrompt('', companyInfo),
+      tools: {
+        searchProductKnowledge,
+      },
     });
   }
 }
