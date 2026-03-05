@@ -92,9 +92,7 @@ It is a group of chemical compounds  that share a pyrrolidone nucleus, they impr
 
 // Functions
 const systemPrompt = (
-  contextualKnowledge: string,
   companyInfo: CompanyInfo,
-  chatHistory?: { role: string; content: string }[]
 ) =>
   `
   CHARACTER AND IDENTITY:
@@ -111,28 +109,29 @@ const systemPrompt = (
   ${COMMON_GOALS}
   ${companyInfo.brandGoals ? `\n  Brand Specific Goals:\n  ${companyInfo.brandGoals}` : ''}
   
-  CONTEXTUAL KNOWLEDGE:
-    ${contextualKnowledge}
-  ${chatHistory?.length ? `\n  CURRENT CHAT HISTORY:\n  ${chatHistory.map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n')}` : ''}
-    
   RULES:
   - Always speak and respond in English only. Do not switch to other languages even if the user speaks another language.
-  - When mentioning a nootropic or study from the catalog, write it as a markdown link that opens in a new tab. For example: [Product Name](URL) but of course dont speak the url, just the name.
+
+  - CRITICAL: Never speak links or parts of links like "https", ".com", etc. Only speak the product or reference study name.
+  - When mentioning a nootropic product from the catalog in your response, always mention it as a markdown link that opens the product page URL in a new tab. For example: "I'd suggest [L-Theanine](https://nootropicsjet.com/product/l-theanine) for that—it pairs well with caffeine.".
+  - When mentioning a reference study from the catalog, always mention it as a markdown link that opens the study page URL in a new tab. For example: [Study Name](URL).
+
   - Be concise and to the point, don't be verbose or wordy. Answer in a conversational tone and in less than 200 characters. Keep it flowing.
   - Don't invent or assume things, you are an expert and accuracy is paramount for you.
   - Stay on topic and don't veer off into tangents.
   - Don't repeat yourself, find unique takes.
 
+
   TOOLS:
-  - searchProductKnowledge: Use this tool when making product recommendations or looking up products and nootropics information. The tool returns relevant product info from the catalog.
+  - searchProductKnowledge: Use this tool to look up nootropics products and reference studies in our catalog. The tool returns relevant product info, including studies and product page URL from the catalog.
 `;
 // TODO: Tool to create and send recommendation email to the user
 
 // RAG tool for Realtime model (Option A: tool-based RAG)
 const searchProductKnowledge = llm.tool({
-  description: `Search the nootropics product catalog for information and recommendations. Use when the user asks about products, supplements, cognitive enhancement, focus, calmness, memory, or specific nootropics like L-Theanine, Rhodiola, etc.`,
+  description: `Search the available nootropics products in our catalog for information and reference studies. Use this tool when the user asks about products, studies, or when you are making recommendations.`,
   parameters: z.object({
-    query: z.string().describe('The user\'s question or topic to search for (e.g. "focus in morning", "L-Theanine for calmness")'),
+    query: z.string().describe('The user\'s question or topic to search for (e.g. "focus in morning", "L-Theanine for calmness", "studies about Modafinil")'),
   }),
   execute: async ({ query }) => {
     const content = await ragLookup(query);
@@ -145,7 +144,7 @@ const searchProductKnowledge = llm.tool({
 export class Agent extends voice.Agent {
   constructor(companyInfo: CompanyInfo = nootropicsJetCompanyInfo) {
     super({
-      instructions: systemPrompt('', companyInfo),
+      instructions: systemPrompt(companyInfo),
       tools: {
         searchProductKnowledge,
       },

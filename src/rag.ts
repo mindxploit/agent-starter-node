@@ -82,7 +82,8 @@ export async function ragLookup(query: string): Promise<string> {
       return `
 Product: ${p.name ?? 'Unknown'}
 Description: ${p.description ?? ''}
-Type: ${p.product_type ?? ''}
+${p.product_type ? `Type: ${p.product_type}\n` : ''}
+URL: ${p.url ?? ''}
 `.trim();
     })
     .filter(Boolean)
