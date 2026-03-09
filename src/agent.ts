@@ -1,6 +1,7 @@
 import { llm, voice } from '@livekit/agents';
 import { z } from 'zod';
 import { ragLookup } from './rag.js';
+import { stripMarkdownForSpeech } from './tts-strip-markdown.js';
 
 // Types
 interface CompanyInfo {
@@ -112,11 +113,9 @@ const systemPrompt = (
   RULES:
   - Always speak and respond in English only. Do not switch to other languages even if the user speaks another language.
 
-  - CRITICAL: Never speak links or parts of links like "https", ".com", etc. Only speak the product or reference study name.
-  - When mentioning a nootropic product from the catalog in your response, always mention it as a markdown link that opens the product page URL in a new tab. For example: "I'd suggest [L-Theanine](https://nootropicsjet.com/product/l-theanine) for that—it pairs well with caffeine.".
-  - When mentioning a reference study from the catalog, always mention it as a markdown link that opens the study page URL in a new tab. For example: [Study Name](URL).
+  - When mentioning nootropic products or reference studies in your response, always mention it as a markdown link that opens URL in a new tab. Like: [Product Name](URL) or [Study Name](URL).
 
-  - Be concise and to the point, don't be verbose or wordy. Answer in a conversational tone and in less than 200 characters. Keep it flowing.
+  - Be concise and to the point, don't be verbose or wordy. Answer in a conversational tone and in less than 200 characters. Keep it flowing and engaging.
   - Don't invent or assume things, you are an expert and accuracy is paramount for you.
   - Stay on topic and don't veer off into tangents.
   - Don't repeat yourself, find unique takes.
@@ -149,5 +148,35 @@ export class Agent extends voice.Agent {
         searchProductKnowledge,
       },
     });
+  }
+
+  override async ttsNode(
+    text: Parameters<voice.Agent['ttsNode']>[0],
+    modelSettings: voice.ModelSettings,
+  ): ReturnType<voice.Agent['ttsNode']> {
+    // Buffer full stream, strip markdown/emojis (can span chunks), then pass to default TTS
+    const chunks: string[] = [];
+    const reader = text.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(typeof value === 'string' ? value : (value as { text: string }).text);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const stripped = stripMarkdownForSpeech(chunks.join(''));
+    const strippedStream = new ReadableStream<string>({
+      start(controller) {
+        if (stripped) controller.enqueue(stripped);
+        controller.close();
+      },
+    });
+    return voice.Agent.default.ttsNode(
+      this as voice.Agent,
+      strippedStream as Parameters<voice.Agent['ttsNode']>[0],
+      modelSettings,
+    );
   }
 }
