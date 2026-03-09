@@ -7,6 +7,7 @@ import {
   voice,
 } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
+import * as cartesia from '@livekit/agents-plugin-cartesia';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as livekit from '@livekit/agents-plugin-livekit';
 import * as silero from '@livekit/agents-plugin-silero';
@@ -18,20 +19,10 @@ import { Agent } from './agent';
 dotenv.config({ path: '.env.local' });
 
 export default defineAgent({
-  prewarm: async (proc: JobProcess) => {
-    proc.userData.vad = await silero.VAD.load({
-      activationThreshold: 0.7,
-      minSpeechDuration: 100,
-      minSilenceDuration: 600,
-    });
-  },
   entry: async (ctx: JobContext) => {
-    const vad = ctx.proc.userData.vad! as silero.VAD;
-
     const session = new voice.AgentSession({
-      vad,
       turnDetection: new livekit.turnDetector.MultilingualModel(),
-      voiceOptions: { minInterruptionWords: 1 },
+      voiceOptions: { minInterruptionWords: 1, useTtsAlignedTranscript: false },
       stt: new deepgram.STT({
         model: 'nova-3',
         language: 'en',
@@ -39,8 +30,9 @@ export default defineAgent({
       llm: new openai.LLM({
         model: 'gpt-4o',
       }),
-      tts: new deepgram.TTS({
-        model: 'aura-2-odysseus-en',
+      tts: new cartesia.TTS({
+        model: 'sonic-3',
+        voice: 'a167e0f3-df7e-4d52-a9c3-f949145efdab', // Blake
       }),
     });
 
@@ -51,18 +43,6 @@ export default defineAgent({
         // For telephony applications, use `TelephonyBackgroundVoiceCancellation` for best results
         noiseCancellation: BackgroundVoiceCancellation(),
       },
-    });
-
-    // Debug: conversation messages
-    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
-      const preview =
-        (event.item.textContent ?? '').slice(0, 30) +
-        ((event.item.textContent?.length ?? 0) > 30 ? '...' : '');
-      console.log(`[MSG] ${event.item.role}: ${preview}`);
-    });
-    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (event) => {
-      if ((event as { isFinal?: boolean }).isFinal)
-        console.log(`[TRANSCRIBE] user: ${(event as { transcript?: string }).transcript ?? ''}`);
     });
 
     await ctx.connect();
