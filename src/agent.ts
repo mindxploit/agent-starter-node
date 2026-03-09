@@ -1,5 +1,4 @@
 import { llm, voice } from '@livekit/agents';
-import { z } from 'zod';
 import { ragLookup } from './rag.js';
 import { stripMarkdownForSpeech } from './tts-strip-markdown.js';
 
@@ -16,8 +15,6 @@ interface CompanyInfo {
 }
 
 // Constants
-const COLLECTION_NAME = 'nootropicsjet';
-
 const COMMON_GOALS = `
   - Use the context and knowledge base to craft uniquely accurate and relevant answers.
   - Hook and retain the user's attention with a professional and engaging tone.
@@ -96,57 +93,68 @@ const systemPrompt = (
   companyInfo: CompanyInfo,
 ) =>
   `
-  CHARACTER AND IDENTITY:
+  # CHARACTER AND IDENTITY:
   ${companyInfo.agentCharacter}
 
-  ABOUT THE COMPANY:
+  # ABOUT THE COMPANY:
   The company's website is ${companyInfo.website}
   ${companyInfo.founder ? `Founded by ${companyInfo.founder}.` : ''}
   ${companyInfo.founderMessage ? `\nA personal message from the founder: "${companyInfo.founderMessage}"` : ''}
   ${companyInfo.about ? `\n${companyInfo.about}` : ''}
   ${companyInfo.faq ? `\nFREQUENTLY ASKED QUESTIONS:\n${companyInfo.faq}` : ''}
 
-  GOALS AND PRIORITIES:
+  # RAG CONTEXT:
+  Relevant product information from our catalog is automatically injected into the conversation before each response. Use this context to craft accurate recommendations and cite products/studies.
+
+  # GOALS AND PRIORITIES:
   ${COMMON_GOALS}
   ${companyInfo.brandGoals ? `\n  Brand Specific Goals:\n  ${companyInfo.brandGoals}` : ''}
   
-  RULES:
-  - Always speak and respond in English only. Do not switch to other languages even if the user speaks another language.
-
-  - When mentioning nootropic products or reference studies in your response, always mention it as a markdown link that opens URL in a new tab. Like: [Product Name](URL) or [Study Name](URL).
-
-  - Be concise and to the point, don't be verbose or wordy. Answer in a conversational tone and in less than 200 characters. Keep it flowing and engaging.
+  # RULES:
+  - Prioritize speaking and responding in English only. Switch only if the user clearly speaks another language.
+  - When mentioning nootropic products or reference studies in your response, mention it as a markdown link that opens URL in a new tab. Like: [Product Name](URL) or [Study Name](URL).
+  - Be concise and to the point, don't be verbose except when explaining nootropics mechanisms of actions, studies, or answering deeper questions.
+  - Answer in a conversational, engaging and flowing tone and in less than 200 characters.
+  - Be proactive in your recommendations and suggestions, don't wait for the user to ask for them.
   - Don't invent or assume things, you are an expert and accuracy is paramount for you.
   - Stay on topic and don't veer off into tangents.
   - Don't repeat yourself, find unique takes.
-
-
-  TOOLS:
-  - searchProductKnowledge: Use this tool to look up nootropics products and reference studies in our catalog. The tool returns relevant product info, including studies and product page URL from the catalog.
 `;
 // TODO: Tool to create and send recommendation email to the user
 
-// RAG tool for Realtime model (Option A: tool-based RAG)
-const searchProductKnowledge = llm.tool({
-  description: `Search the available nootropics products in our catalog for information and reference studies. Use this tool when the user asks about products, studies, or when you are making recommendations.`,
-  parameters: z.object({
-    query: z.string().describe('The user\'s question or topic to search for (e.g. "focus in morning", "L-Theanine for calmness", "studies about Modafinil")'),
-  }),
-  execute: async ({ query }) => {
-    const content = await ragLookup(query);
-    if (!content) return { products: [], message: 'No matching products found.' };
-    return { products: content };
-  },
-});
+// Old rag tool
+// const searchProductKnowledge = llm.tool({
+//   description: `Search the available nootropics products in our catalog for information and reference studies. Use this tool when the user asks about products, studies, or when you are making recommendations.`,
+//   parameters: z.object({
+//     query: z.string().describe('The user\'s question or topic to search for (e.g. "focus in morning", "L-Theanine for calmness", "studies about Modafinil")'),
+//   }),
+//   execute: async ({ query }) => {
+//     const content = await ragLookup(query);
+//     if (!content) return { products: [], message: 'No matching products found.' };
+//     return { products: content };
+//   },
+// });
 
 // Agent
 export class Agent extends voice.Agent {
   constructor(companyInfo: CompanyInfo = nootropicsJetCompanyInfo) {
     super({
       instructions: systemPrompt(companyInfo),
-      tools: {
-        searchProductKnowledge,
-      },
+    });
+  }
+
+  override async onUserTurnCompleted(
+    turnCtx: llm.ChatContext,
+    newMessage: llm.ChatMessage,
+  ): Promise<void> {
+    const text = typeof newMessage.content === 'string'
+      ? newMessage.content
+      : (newMessage as { textContent?: string }).textContent ?? '';
+    const ragContent = await ragLookup(text);
+    if (!ragContent) return;
+    turnCtx.addMessage({
+      role: 'assistant',
+      content: `Additional RAG context relevant to the user's message: ${ragContent}`,
     });
   }
 
